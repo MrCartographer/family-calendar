@@ -15,7 +15,7 @@ const useAuth = () => {
   }, []);
   
   const login = (password) => {
-    const correctPassword = process.env.REACT_APP_FAMILY_PASSWORD || 'family2026';
+    const correctPassword = process.env.REACT_APP_FAMILY_PASSWORD || 'Bruno';
     if (password === correctPassword) {
       localStorage.setItem('family-calendar-auth', 'true');
       setAuthenticated(true);
