@@ -70,6 +70,8 @@ const WeeklyCalendar = () => {
   const [editingWeek, setEditingWeek] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tempTheme1, setTempTheme1] = useState('');
+  const [tempTheme2, setTempTheme2] = useState('');
 
   // Initialize 52 weeks with default data
   const initializeWeeks = () => {
@@ -85,7 +87,8 @@ const WeeklyCalendar = () => {
       
       weeks.push({
         id: i + 1,
-        theme: '',
+        theme1: '',
+        theme2: '',
         dateRange: `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
         events: [],
         expanded: false
@@ -109,7 +112,19 @@ const WeeklyCalendar = () => {
       setCalendar(calendarData);
       
       if (calendarData.weeks && calendarData.weeks.length > 0) {
-        setWeeks(calendarData.weeks);
+        // Migrate existing single theme to dual theme structure
+        const migratedWeeks = calendarData.weeks.map(week => {
+          if (week.theme !== undefined && week.theme1 === undefined) {
+            return {
+              ...week,
+              theme1: week.theme || '',
+              theme2: '',
+              theme: undefined
+            };
+          }
+          return week;
+        });
+        setWeeks(migratedWeeks);
       } else {
         setWeeks(initializeWeeks());
       }
@@ -132,10 +147,29 @@ const WeeklyCalendar = () => {
     }
   }, [weeks, calendar, authenticated]);
 
-  const updateWeekTheme = (weekId, newTheme) => {
+  const updateWeekTheme = (weekId, theme1, theme2 = '') => {
     setWeeks(prev => prev.map(week => 
-      week.id === weekId ? { ...week, theme: newTheme } : week
+      week.id === weekId ? { ...week, theme1, theme2 } : week
     ));
+  };
+
+  const startEditingTheme = (week) => {
+    setEditingWeek(week.id);
+    setTempTheme1(week.theme1 || '');
+    setTempTheme2(week.theme2 || '');
+  };
+
+  const finishEditingTheme = (weekId) => {
+    updateWeekTheme(weekId, tempTheme1, tempTheme2);
+    setEditingWeek(null);
+    setTempTheme1('');
+    setTempTheme2('');
+  };
+
+  const cancelEditingTheme = () => {
+    setEditingWeek(null);
+    setTempTheme1('');
+    setTempTheme2('');
   };
 
   const toggleWeekExpanded = (weekId) => {
@@ -275,37 +309,65 @@ const WeeklyCalendar = () => {
                   
                   <div className="flex-1">
                     {editingWeek === week.id ? (
-                      <input
-                        type="text"
-                        value={week.theme}
-                        onChange={(e) => updateWeekTheme(week.id, e.target.value)}
-                        onBlur={() => setEditingWeek(null)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') setEditingWeek(null);
-                          if (e.key === 'Escape') setEditingWeek(null);
-                        }}
-                        placeholder="Enter week theme..."
-                        className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
-                        autoFocus
-                      />
-                    ) : week.theme ? (
-                      <span 
-                        className="font-medium text-gray-800 cursor-pointer hover:text-blue-600 px-2 py-1 hover:bg-blue-50 rounded"
-                        onClick={() => setEditingWeek(week.id)}
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={tempTheme1}
+                          onChange={(e) => setTempTheme1(e.target.value)}
+                          onBlur={() => {
+                            if (!tempTheme2.trim()) finishEditingTheme(week.id);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') finishEditingTheme(week.id);
+                            if (e.key === 'Escape') cancelEditingTheme();
+                          }}
+                          placeholder="Enter first theme..."
+                          className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                          autoFocus
+                        />
+                        <input
+                          type="text"
+                          value={tempTheme2}
+                          onChange={(e) => setTempTheme2(e.target.value)}
+                          onBlur={() => finishEditingTheme(week.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') finishEditingTheme(week.id);
+                            if (e.key === 'Escape') cancelEditingTheme();
+                          }}
+                          placeholder="Enter second theme (optional)..."
+                          className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                        />
+                      </div>
+                    ) : (week.theme1 || week.theme2) ? (
+                      <div 
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => startEditingTheme(week)}
                       >
-                        {week.theme}
-                      </span>
+                        {week.theme1 && (
+                          <span className="font-medium text-gray-800 hover:text-blue-600">
+                            {week.theme1}
+                          </span>
+                        )}
+                        {week.theme1 && week.theme2 && (
+                          <span className="text-gray-400 mx-2">•</span>
+                        )}
+                        {week.theme2 && (
+                          <span className="font-medium text-gray-800 hover:text-blue-600">
+                            {week.theme2}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type="text"
                         value=""
                         onChange={(e) => {
-                          updateWeekTheme(week.id, e.target.value);
+                          setTempTheme1(e.target.value);
                           setEditingWeek(week.id);
                         }}
                         placeholder="Enter week theme..."
                         className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
-                        onFocus={() => setEditingWeek(week.id)}
+                        onFocus={() => startEditingTheme(week)}
                       />
                     )}
                   </div>
