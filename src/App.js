@@ -309,38 +309,40 @@ const WeeklyCalendar = () => {
                   
                   <div className="flex-1">
                     {editingWeek === week.id ? (
-                      <div className="space-y-2">
+                      <div className="flex gap-2 w-full">
                         <input
                           type="text"
                           value={tempTheme1}
                           onChange={(e) => setTempTheme1(e.target.value)}
-                          onBlur={() => {
-                            if (!tempTheme2.trim()) finishEditingTheme(week.id);
-                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') finishEditingTheme(week.id);
                             if (e.key === 'Escape') cancelEditingTheme();
                           }}
-                          placeholder="Enter first theme..."
-                          className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                          placeholder="First theme..."
+                          className="flex-1 px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 touch-manipulation"
                           autoFocus
                         />
                         <input
                           type="text"
                           value={tempTheme2}
                           onChange={(e) => setTempTheme2(e.target.value)}
-                          onBlur={() => finishEditingTheme(week.id)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') finishEditingTheme(week.id);
                             if (e.key === 'Escape') cancelEditingTheme();
                           }}
-                          placeholder="Enter second theme (optional)..."
-                          className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                          placeholder="Second theme..."
+                          className="flex-1 px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 touch-manipulation"
                         />
+                        <button
+                          onClick={() => finishEditingTheme(week.id)}
+                          className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 touch-manipulation"
+                        >
+                          ✓
+                        </button>
                       </div>
                     ) : (week.theme1 || week.theme2) ? (
                       <div 
-                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded transition-colors touch-manipulation"
                         onClick={() => startEditingTheme(week)}
                       >
                         {week.theme1 && (
@@ -358,17 +360,12 @@ const WeeklyCalendar = () => {
                         )}
                       </div>
                     ) : (
-                      <input
-                        type="text"
-                        value=""
-                        onChange={(e) => {
-                          setTempTheme1(e.target.value);
-                          setEditingWeek(week.id);
-                        }}
-                        placeholder="Enter week theme..."
-                        className="w-full px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
-                        onFocus={() => startEditingTheme(week)}
-                      />
+                      <div
+                        onClick={() => startEditingTheme(week)}
+                        className="w-full px-2 py-1 border rounded font-medium text-gray-400 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-colors touch-manipulation"
+                      >
+                        Enter week theme...
+                      </div>
                     )}
                   </div>
                 </div>
