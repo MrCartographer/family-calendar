@@ -1,49 +1,75 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, Calendar, Settings, Users, Plus, Trash2, LogOut } from 'lucide-react';
+import { ChevronRight, ChevronDown, Calendar, LogOut } from 'lucide-react';
 
-// Mock Privy hook - replace with actual Privy implementation
-const usePrivy = () => ({
-  login: () => console.log('Login with Privy'),
-  logout: () => console.log('Logout'),
-  user: {
-    wallet: { address: '0x1234...5678' },
-    id: 'user123'
+// Simple password authentication
+const useAuth = () => {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  
+  useEffect(() => {
+    const isAuth = localStorage.getItem('family-calendar-auth') === 'true';
+    if (isAuth) {
+      setAuthenticated(true);
+      setUser({ id: 'family-user', name: 'Family Member' });
+    }
+  }, []);
+  
+  const login = (password) => {
+    const correctPassword = process.env.REACT_APP_FAMILY_PASSWORD || 'family2026';
+    if (password === correctPassword) {
+      localStorage.setItem('family-calendar-auth', 'true');
+      setAuthenticated(true);
+      setUser({ id: 'family-user', name: 'Family Member' });
+      return true;
+    }
+    return false;
+  };
+  
+  const logout = () => {
+    localStorage.removeItem('family-calendar-auth');
+    setAuthenticated(false);
+    setUser(null);
+  };
+  
+  return { authenticated, user, login, logout };
+};
+
+// Simple local storage for calendar data
+const localAPI = {
+  getCalendar: async () => {
+    const savedWeeks = localStorage.getItem('family-calendar-weeks');
+    return {
+      id: 1,
+      name: 'Family Calendar',
+      weeks: savedWeeks ? JSON.parse(savedWeeks) : []
+    };
   },
-  authenticated: true
-});
-
-// Mock database functions - replace with actual API calls
-const mockAPI = {
-  getCalendar: async (subdomain) => ({
-    id: 1,
-    owner: '0x1234...5678',
-    authorizedMembers: ['0x1234...5678', '0xabcd...efgh'],
-    subdomain: 'smith-family',
-    weeks: []
-  }),
   updateWeeks: async (calendarId, weeks) => {
-    console.log('Updating weeks in database:', weeks);
-    return true;
-  },
-  addAuthorizedMember: async (calendarId, address) => {
-    console.log('Adding member:', address);
-    return true;
-  },
-  removeAuthorizedMember: async (calendarId, address) => {
-    console.log('Removing member:', address);
+    localStorage.setItem('family-calendar-weeks', JSON.stringify(weeks));
     return true;
   }
 };
 
 const WeeklyCalendar = () => {
-  const { user, authenticated, login, logout } = usePrivy();
-  const [currentView, setCurrentView] = useState('calendar'); // 'calendar' or 'settings'
+  const { user, authenticated, login, logout } = useAuth();
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  
+  const handleLogin = (e) => {
+    e.preventDefault();
+    const success = login(password);
+    if (!success) {
+      setLoginError('Incorrect password');
+      setPassword('');
+    } else {
+      setLoginError('');
+    }
+  };
   const [calendar, setCalendar] = useState(null);
   const [weeks, setWeeks] = useState([]);
   const [editingWeek, setEditingWeek] = useState(null);
   const [editingEvent, setEditingEvent] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [newMemberAddress, setNewMemberAddress] = useState('');
 
   // Initialize 52 weeks with default data
   const initializeWeeks = () => {
@@ -78,8 +104,7 @@ const WeeklyCalendar = () => {
   const loadCalendarData = async () => {
     try {
       setLoading(true);
-      const subdomain = window.location.hostname.split('.')[0]; // Extract subdomain
-      const calendarData = await mockAPI.getCalendar(subdomain);
+      const calendarData = await localAPI.getCalendar();
       
       setCalendar(calendarData);
       
@@ -96,11 +121,11 @@ const WeeklyCalendar = () => {
     }
   };
 
-  // Save weeks to database whenever they change
+  // Save weeks to local storage whenever they change
   useEffect(() => {
     if (calendar && weeks.length > 0 && authenticated) {
       const debounceTimer = setTimeout(() => {
-        mockAPI.updateWeeks(calendar.id, weeks);
+        localAPI.updateWeeks(calendar.id, weeks);
       }, 1000); // Debounce saves by 1 second
       
       return () => clearTimeout(debounceTimer);
@@ -156,36 +181,7 @@ const WeeklyCalendar = () => {
     ));
   };
 
-  const addFamilyMember = async () => {
-    if (!newMemberAddress.trim() || !calendar) return;
-    
-    try {
-      await mockAPI.addAuthorizedMember(calendar.id, newMemberAddress);
-      setCalendar(prev => ({
-        ...prev,
-        authorizedMembers: [...prev.authorizedMembers, newMemberAddress]
-      }));
-      setNewMemberAddress('');
-    } catch (error) {
-      console.error('Failed to add family member:', error);
-    }
-  };
-
-  const removeFamilyMember = async (address) => {
-    if (!calendar || address === calendar.owner) return; // Can't remove owner
-    
-    try {
-      await mockAPI.removeAuthorizedMember(calendar.id, address);
-      setCalendar(prev => ({
-        ...prev,
-        authorizedMembers: prev.authorizedMembers.filter(member => member !== address)
-      }));
-    } catch (error) {
-      console.error('Failed to remove family member:', error);
-    }
-  };
-
-  const isOwner = calendar && user?.wallet?.address === calendar.owner;
+  // Simplified - no complex member management for family use
 
   // Login screen
   if (!authenticated) {
@@ -195,15 +191,31 @@ const WeeklyCalendar = () => {
           <div className="text-center mb-8">
             <Calendar className="mx-auto text-blue-600 mb-4" size={48} />
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Family Calendar</h1>
-            <p className="text-gray-600">Connect your wallet to access your family's calendar</p>
+            <p className="text-gray-600">Enter the family password to access your calendar</p>
           </div>
           
-          <button
-            onClick={login}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-colors"
-          >
-            Connect Wallet with Privy
-          </button>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter family password"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+              {loginError && (
+                <p className="text-red-500 text-sm mt-2">{loginError}</p>
+              )}
+            </div>
+            
+            <button
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-colors"
+            >
+              Access Calendar
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -221,106 +233,6 @@ const WeeklyCalendar = () => {
     );
   }
 
-  // Settings view
-  if (currentView === 'settings') {
-    return (
-      <div className="max-w-4xl mx-auto p-6 bg-gray-50 min-h-screen">
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-6 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Settings className="text-blue-600" size={24} />
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-800">Calendar Settings</h1>
-                  <p className="text-gray-600">Manage your family calendar access</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setCurrentView('calendar')}
-                  className="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                >
-                  Back to Calendar
-                </button>
-                <button
-                  onClick={logout}
-                  className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
-                >
-                  <LogOut size={16} />
-                  Logout
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <div className="p-6">
-            <div className="mb-8">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Users size={20} />
-                Family Members
-              </h2>
-              
-              {isOwner && (
-                <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-                  <h3 className="font-medium text-gray-800 mb-3">Add Family Member</h3>
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      value={newMemberAddress}
-                      onChange={(e) => setNewMemberAddress(e.target.value)}
-                      placeholder="Enter wallet address (0x...)"
-                      className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      onClick={addFamilyMember}
-                      disabled={!newMemberAddress.trim()}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg transition-colors flex items-center gap-2"
-                    >
-                      <Plus size={16} />
-                      Add
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              <div className="space-y-3">
-                {calendar?.authorizedMembers?.map((address, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <span className="font-mono text-sm text-gray-700">{address}</span>
-                      {address === calendar.owner && (
-                        <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">Owner</span>
-                      )}
-                      {address === user?.wallet?.address && (
-                        <span className="ml-2 px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">You</span>
-                      )}
-                    </div>
-                    {isOwner && address !== calendar.owner && (
-                      <button
-                        onClick={() => removeFamilyMember(address)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="border-t pt-6">
-              <h3 className="font-medium text-gray-800 mb-3">Calendar Information</h3>
-              <div className="space-y-2 text-sm text-gray-600">
-                <p><strong>URL:</strong> {calendar?.subdomain}.calendr.io</p>
-                <p><strong>Created:</strong> {new Date().toLocaleDateString()}</p>
-                <p><strong>Members:</strong> {calendar?.authorizedMembers?.length || 0}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // Main calendar view
   return (
@@ -335,18 +247,13 @@ const WeeklyCalendar = () => {
                 <p className="text-gray-600">52 weeks to plan and theme your year</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600">
-                {user?.wallet?.address?.substring(0, 6)}...{user?.wallet?.address?.substring(-4)}
-              </span>
-              <button
-                onClick={() => setCurrentView('settings')}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
-              >
-                <Settings size={16} />
-                Settings
-              </button>
-            </div>
+            <button
+              onClick={logout}
+              className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <LogOut size={16} />
+              Logout
+            </button>
           </div>
         </div>
         
