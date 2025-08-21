@@ -97,6 +97,26 @@ const WeeklyCalendar = () => {
   const [tempTheme2, setTempTheme2] = useState('');
   const [selectedYear, setSelectedYear] = useState(2026);
 
+  // Get current week number of the year
+  const getCurrentWeekNumber = () => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    
+    // Only highlight if we're viewing the current year
+    if (selectedYear !== currentYear) return -1;
+    
+    // Find first Monday of the year
+    let startOfYear = new Date(currentYear, 0, 1);
+    while (startOfYear.getDay() !== 1) {
+      startOfYear.setDate(startOfYear.getDate() + 1);
+    }
+    
+    // Calculate weeks since first Monday
+    const timeDiff = now - startOfYear;
+    const weeksDiff = Math.floor(timeDiff / (7 * 24 * 60 * 60 * 1000));
+    return weeksDiff + 1;
+  };
+
   // Initialize 52 weeks with default data for a given year
   const initializeWeeks = (year) => {
     const weeks = [];
@@ -348,8 +368,12 @@ const WeeklyCalendar = () => {
         </div>
         
         <div className="divide-y divide-gray-100">
-          {weeks.map((week) => (
-            <div key={week.id} className="hover:bg-gray-50 transition-colors group">
+          {weeks.map((week) => {
+            const currentWeekNumber = getCurrentWeekNumber();
+            const isCurrentWeek = currentWeekNumber === week.id;
+            
+            return (
+            <div key={week.id} className={`hover:bg-gray-50 transition-colors group ${isCurrentWeek ? 'bg-blue-50 border-l-4 border-blue-400' : ''}`}>
               <div className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-3 flex-1">
                   <button
@@ -490,7 +514,8 @@ const WeeklyCalendar = () => {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
