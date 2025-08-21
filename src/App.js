@@ -34,18 +34,19 @@ const useAuth = () => {
   return { authenticated, user, login, logout };
 };
 
-// Simple local storage for calendar data
+// Simple local storage for calendar data with year separation
 const localAPI = {
-  getCalendar: async () => {
-    const savedWeeks = localStorage.getItem('family-calendar-weeks');
+  getCalendar: async (year) => {
+    const savedWeeks = localStorage.getItem(`family-calendar-weeks-${year}`);
     return {
       id: 1,
       name: 'Family Calendar',
+      year: year,
       weeks: savedWeeks ? JSON.parse(savedWeeks) : []
     };
   },
-  updateWeeks: async (calendarId, weeks) => {
-    localStorage.setItem('family-calendar-weeks', JSON.stringify(weeks));
+  updateWeeks: async (year, weeks) => {
+    localStorage.setItem(`family-calendar-weeks-${year}`, JSON.stringify(weeks));
     return true;
   }
 };
@@ -72,11 +73,16 @@ const WeeklyCalendar = () => {
   const [loading, setLoading] = useState(true);
   const [tempTheme1, setTempTheme1] = useState('');
   const [tempTheme2, setTempTheme2] = useState('');
+  const [selectedYear, setSelectedYear] = useState(2026);
 
-  // Initialize 52 weeks with default data
-  const initializeWeeks = () => {
+  // Initialize 52 weeks with default data for a given year
+  const initializeWeeks = (year) => {
     const weeks = [];
-    const startDate = new Date(2026, 0, 5); // January 5, 2026 (first Monday)
+    // Find the first Monday of the year
+    let startDate = new Date(year, 0, 1);
+    while (startDate.getDay() !== 1) {
+      startDate.setDate(startDate.getDate() + 1);
+    }
     
     for (let i = 0; i < 52; i++) {
       const weekStart = new Date(startDate);
@@ -87,6 +93,7 @@ const WeeklyCalendar = () => {
       
       weeks.push({
         id: i + 1,
+        year: year,
         theme1: '',
         theme2: '',
         dateRange: `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
@@ -97,17 +104,17 @@ const WeeklyCalendar = () => {
     return weeks;
   };
 
-  // Load calendar data on mount
+  // Load calendar data on mount and when year changes
   useEffect(() => {
     if (authenticated) {
       loadCalendarData();
     }
-  }, [authenticated]);
+  }, [authenticated, selectedYear]);
 
   const loadCalendarData = async () => {
     try {
       setLoading(true);
-      const calendarData = await localAPI.getCalendar();
+      const calendarData = await localAPI.getCalendar(selectedYear);
       
       setCalendar(calendarData);
       
@@ -119,18 +126,19 @@ const WeeklyCalendar = () => {
               ...week,
               theme1: week.theme || '',
               theme2: '',
-              theme: undefined
+              theme: undefined,
+              year: selectedYear
             };
           }
-          return week;
+          return { ...week, year: selectedYear };
         });
         setWeeks(migratedWeeks);
       } else {
-        setWeeks(initializeWeeks());
+        setWeeks(initializeWeeks(selectedYear));
       }
     } catch (error) {
       console.error('Failed to load calendar:', error);
-      setWeeks(initializeWeeks());
+      setWeeks(initializeWeeks(selectedYear));
     } finally {
       setLoading(false);
     }
@@ -140,12 +148,12 @@ const WeeklyCalendar = () => {
   useEffect(() => {
     if (calendar && weeks.length > 0 && authenticated) {
       const debounceTimer = setTimeout(() => {
-        localAPI.updateWeeks(calendar.id, weeks);
+        localAPI.updateWeeks(selectedYear, weeks);
       }, 1000); // Debounce saves by 1 second
       
       return () => clearTimeout(debounceTimer);
     }
-  }, [weeks, calendar, authenticated]);
+  }, [weeks, calendar, authenticated, selectedYear]);
 
   const updateWeekTheme = (weekId, theme1, theme2 = '') => {
     setWeeks(prev => prev.map(week => 
@@ -277,17 +285,43 @@ const WeeklyCalendar = () => {
             <div className="flex items-center gap-3">
               <Calendar className="text-blue-600" size={24} />
               <div>
-                <h1 className="text-2xl font-bold text-gray-800">2026 Weekly Planner</h1>
+                <h1 className="text-2xl font-bold text-gray-800">{selectedYear} Weekly Planner</h1>
                 <p className="text-gray-600">52 weeks to plan and theme your year</p>
               </div>
             </div>
-            <button
-              onClick={logout}
-              className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <LogOut size={16} />
-              Logout
-            </button>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex bg-gray-100 rounded-lg p-1">
+                <button
+                  onClick={() => setSelectedYear(2025)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    selectedYear === 2025
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  2025
+                </button>
+                <button
+                  onClick={() => setSelectedYear(2026)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    selectedYear === 2026
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  2026
+                </button>
+              </div>
+              
+              <button
+                onClick={logout}
+                className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <LogOut size={16} />
+                Logout
+              </button>
+            </div>
           </div>
         </div>
         
