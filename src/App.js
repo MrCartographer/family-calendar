@@ -36,24 +36,28 @@ const useAuth = () => {
 
 // Simple local storage for calendar data with year separation
 const localAPI = {
-  // One-time migration for existing data
-  migrateOldData: () => {
+  // One-time cleanup and migration
+  cleanupAndMigrate: () => {
+    // Clear any problematic 2025 data
+    localStorage.removeItem('family-calendar-weeks-2025');
+    console.log('🧹 Cleared 2025 calendar for fresh start');
+    
+    // Migrate old data to 2026 if it exists
     const oldData = localStorage.getItem('family-calendar-weeks');
     if (oldData) {
-      console.log('🔄 Recovering your existing data...');
-      // Move old data to 2026 key (since that's where most data was)
+      console.log('🔄 Moving existing data to 2026...');
       localStorage.setItem('family-calendar-weeks-2026', oldData);
-      // Remove old key
       localStorage.removeItem('family-calendar-weeks');
-      console.log('✅ Your data has been recovered to 2026!');
-      return true;
+      console.log('✅ Your existing data is now in 2026!');
     }
-    return false;
   },
   
   getCalendar: async (year) => {
-    // Run migration check on first load
-    localAPI.migrateOldData();
+    // Run cleanup/migration only once
+    if (!localStorage.getItem('calendar-cleanup-done')) {
+      localAPI.cleanupAndMigrate();
+      localStorage.setItem('calendar-cleanup-done', 'true');
+    }
     
     const savedWeeks = localStorage.getItem(`family-calendar-weeks-${year}`);
     return {
