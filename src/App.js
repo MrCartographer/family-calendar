@@ -84,8 +84,6 @@ const WeeklyCalendar = () => {
   const [selectedYear, setSelectedYear] = useState(2026);
   const [selectedView, setSelectedView] = useState('2026'); // '2025', '2026', or 'trip'
   const [tripDays, setTripDays] = useState([]);
-  // Cache to prevent data loss when switching between views
-  const [weeksCache, setWeeksCache] = useState({ 2025: null, 2026: null });
 
   // Get current week number of the year
   const getCurrentWeekNumber = () => {
@@ -161,13 +159,6 @@ const WeeklyCalendar = () => {
     try {
       setLoading(true);
 
-      // Check cache first to preserve unsaved changes
-      if (weeksCache[selectedYear] && weeksCache[selectedYear].length > 0) {
-        setWeeks(weeksCache[selectedYear]);
-        setLoading(false);
-        return;
-      }
-
       const calendarData = await localAPI.getCalendar(selectedYear);
 
       setCalendar(calendarData);
@@ -196,7 +187,7 @@ const WeeklyCalendar = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedYear, weeksCache]);
+  }, [selectedYear]);
 
   const loadTripData = useCallback(async () => {
     try {
@@ -227,35 +218,17 @@ const WeeklyCalendar = () => {
     }
   }, [authenticated, selectedYear, selectedView, loadCalendarData, loadTripData]);
 
-  // Save weeks to cache when they change
-  useEffect(() => {
-    if (weeks.length > 0 && selectedView !== 'trip') {
-      setWeeksCache(prev => ({
-        ...prev,
-        [selectedYear]: weeks
-      }));
-    }
-  }, [weeks, selectedYear, selectedView]);
-
-  // Save weeks to local storage whenever they change
+  // Save weeks to local storage whenever they change (no debounce to prevent data loss)
   useEffect(() => {
     if (calendar && weeks.length > 0 && authenticated && selectedView !== 'trip') {
-      const debounceTimer = setTimeout(() => {
-        localAPI.updateWeeks(selectedYear, weeks);
-      }, 300); // Debounce saves by 300ms (faster to prevent data loss)
-
-      return () => clearTimeout(debounceTimer);
+      localAPI.updateWeeks(selectedYear, weeks);
     }
   }, [weeks, calendar, authenticated, selectedYear, selectedView]);
 
-  // Save trip days to local storage whenever they change
+  // Save trip days to local storage whenever they change (no debounce to prevent data loss)
   useEffect(() => {
     if (tripDays.length > 0 && authenticated && selectedView === 'trip') {
-      const debounceTimer = setTimeout(() => {
-        localAPI.updateTripData(tripDays);
-      }, 300); // Debounce saves by 300ms (faster to prevent data loss)
-
-      return () => clearTimeout(debounceTimer);
+      localAPI.updateTripData(tripDays);
     }
   }, [tripDays, authenticated, selectedView]);
 
