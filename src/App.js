@@ -1,77 +1,132 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronRight, ChevronDown, Calendar, LogOut } from 'lucide-react';
 
-// Simple password authentication
+// API base URL - uses relative path for Vercel, or localhost for development
+const API_BASE = process.env.REACT_APP_API_URL || '/api';
+
+// Get stored password for API authentication
+const getStoredPassword = () => localStorage.getItem('family-calendar-password') || '';
+
+// Simple password authentication with server verification
 const useAuth = () => {
   const [authenticated, setAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
-  
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const isAuth = localStorage.getItem('family-calendar-auth') === 'true';
-    if (isAuth) {
-      setAuthenticated(true);
-      setUser({ id: 'family-user', name: 'Family Member' });
+    const savedPassword = localStorage.getItem('family-calendar-password');
+    if (savedPassword) {
+      // Verify saved password with server
+      fetch(`${API_BASE}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: savedPassword })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.valid) {
+            setAuthenticated(true);
+            setUser({ id: 'family-user', name: 'Family Member' });
+          } else {
+            localStorage.removeItem('family-calendar-password');
+          }
+        })
+        .catch(() => {
+          // If server unreachable, allow offline access with stored password
+          setAuthenticated(true);
+          setUser({ id: 'family-user', name: 'Family Member' });
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
   }, []);
-  
-  const login = (password) => {
-    const correctPassword = process.env.REACT_APP_FAMILY_PASSWORD || 'Bruno';
-    if (password === correctPassword) {
-      localStorage.setItem('family-calendar-auth', 'true');
-      setAuthenticated(true);
-      setUser({ id: 'family-user', name: 'Family Member' });
-      return true;
+
+  const login = async (password) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      const data = await res.json();
+
+      if (data.valid) {
+        localStorage.setItem('family-calendar-password', password);
+        setAuthenticated(true);
+        setUser({ id: 'family-user', name: 'Family Member' });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
     }
-    return false;
   };
-  
+
   const logout = () => {
-    localStorage.removeItem('family-calendar-auth');
+    localStorage.removeItem('family-calendar-password');
     setAuthenticated(false);
     setUser(null);
   };
-  
-  return { authenticated, user, login, logout };
+
+  return { authenticated, user, login, logout, loading };
 };
 
-// Simple local storage for calendar data with year separation
-const localAPI = {
+// Calendar API - fetches from Redis via Vercel serverless functions
+const calendarAPI = {
   getCalendar: async (year) => {
-    const savedWeeks = localStorage.getItem(`family-calendar-weeks-${year}`);
-    return {
-      id: 1,
-      name: 'Family Calendar',
-      year: year,
-      weeks: savedWeeks ? JSON.parse(savedWeeks) : []
-    };
+    try {
+      const res = await fetch(`${API_BASE}/calendar?year=${year}`, {
+        headers: { 'X-Family-Password': getStoredPassword() }
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return await res.json();
+    } catch (error) {
+      console.error('API fetch failed, falling back to localStorage:', error);
+      // Fallback to localStorage if API fails
+      const savedWeeks = localStorage.getItem(`family-calendar-weeks-${year}`);
+      return {
+        id: 1,
+        name: 'Family Calendar',
+        year: year,
+        weeks: savedWeeks ? JSON.parse(savedWeeks) : []
+      };
+    }
   },
   updateWeeks: async (year, weeks) => {
+    // Always save to localStorage as backup
     localStorage.setItem(`family-calendar-weeks-${year}`, JSON.stringify(weeks));
-    return true;
+
+    try {
+      const res = await fetch(`${API_BASE}/calendar?year=${year}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Family-Password': getStoredPassword()
+        },
+        body: JSON.stringify({ weeks })
+      });
+      return res.ok;
+    } catch (error) {
+      console.error('API update failed, saved to localStorage only:', error);
+      return true; // Return true since localStorage save succeeded
+    }
   },
-  getTripData: async () => {
-    const savedDays = localStorage.getItem('family-calendar-trip-turks-caicos-2025');
-    return savedDays ? JSON.parse(savedDays) : [];
-  },
-  updateTripData: async (days) => {
-    localStorage.setItem('family-calendar-trip-turks-caicos-2025', JSON.stringify(days));
-    return true;
-  }
 };
 
 const WeeklyCalendar = () => {
-  const { authenticated, login, logout } = useAuth();
+  const { authenticated, login, logout, loading: authLoading } = useAuth();
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const success = login(password);
+    setLoginError('');
+    const success = await login(password);
     if (!success) {
       setLoginError('Incorrect password');
       setPassword('');
-    } else {
-      setLoginError('');
     }
   };
   const [calendar, setCalendar] = useState(null);
@@ -82,8 +137,6 @@ const WeeklyCalendar = () => {
   const [tempTheme1, setTempTheme1] = useState('');
   const [tempTheme2, setTempTheme2] = useState('');
   const [selectedYear, setSelectedYear] = useState(2026);
-  const [selectedView, setSelectedView] = useState('2026'); // '2025', '2026', or 'trip'
-  const [tripDays, setTripDays] = useState([]);
 
   // Get current week number of the year
   const getCurrentWeekNumber = () => {
@@ -134,32 +187,11 @@ const WeeklyCalendar = () => {
     return weeks;
   };
 
-  // Initialize trip days for Turks & Caicos (Oct 24 - Nov 6, 2025)
-  const initializeTripDays = () => {
-    const days = [];
-    const startDate = new Date(2025, 9, 24); // Oct 24, 2025 (month is 0-indexed)
-
-    for (let i = 0; i < 14; i++) {
-      const currentDate = new Date(startDate);
-      currentDate.setDate(startDate.getDate() + i);
-
-      days.push({
-        id: i + 1,
-        date: currentDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
-        theme1: '',
-        theme2: '',
-        events: [],
-        expanded: false
-      });
-    }
-    return days;
-  };
-
   const loadCalendarData = useCallback(async () => {
     try {
       setLoading(true);
 
-      const calendarData = await localAPI.getCalendar(selectedYear);
+      const calendarData = await calendarAPI.getCalendar(selectedYear);
 
       setCalendar(calendarData);
 
@@ -189,59 +221,24 @@ const WeeklyCalendar = () => {
     }
   }, [selectedYear]);
 
-  const loadTripData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const savedDays = await localAPI.getTripData();
-
-      if (savedDays && savedDays.length > 0) {
-        setTripDays(savedDays);
-      } else {
-        setTripDays(initializeTripDays());
-      }
-    } catch (error) {
-      console.error('Failed to load trip data:', error);
-      setTripDays(initializeTripDays());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Load calendar data on mount and when year/view changes
+  // Load calendar data on mount and when year changes
   useEffect(() => {
     if (authenticated) {
-      if (selectedView === 'trip') {
-        loadTripData();
-      } else {
-        loadCalendarData();
-      }
+      loadCalendarData();
     }
-  }, [authenticated, selectedYear, selectedView, loadCalendarData, loadTripData]);
+  }, [authenticated, selectedYear, loadCalendarData]);
 
   // Save weeks to local storage whenever they change (no debounce to prevent data loss)
   useEffect(() => {
-    if (calendar && weeks.length > 0 && authenticated && selectedView !== 'trip') {
-      localAPI.updateWeeks(selectedYear, weeks);
+    if (calendar && weeks.length > 0 && authenticated) {
+      calendarAPI.updateWeeks(selectedYear, weeks);
     }
-  }, [weeks, calendar, authenticated, selectedYear, selectedView]);
-
-  // Save trip days to local storage whenever they change (no debounce to prevent data loss)
-  useEffect(() => {
-    if (tripDays.length > 0 && authenticated && selectedView === 'trip') {
-      localAPI.updateTripData(tripDays);
-    }
-  }, [tripDays, authenticated, selectedView]);
+  }, [weeks, calendar, authenticated, selectedYear]);
 
   const updateWeekTheme = (weekId, theme1, theme2 = '') => {
-    if (selectedView === 'trip') {
-      setTripDays(prev => prev.map(day =>
-        day.id === weekId ? { ...day, theme1, theme2 } : day
-      ));
-    } else {
-      setWeeks(prev => prev.map(week =>
-        week.id === weekId ? { ...week, theme1, theme2 } : week
-      ));
-    }
+    setWeeks(prev => prev.map(week =>
+      week.id === weekId ? { ...week, theme1, theme2 } : week
+    ));
   };
 
   const startEditingTheme = (week) => {
@@ -264,15 +261,9 @@ const WeeklyCalendar = () => {
   };
 
   const toggleWeekExpanded = (weekId) => {
-    if (selectedView === 'trip') {
-      setTripDays(prev => prev.map(day =>
-        day.id === weekId ? { ...day, expanded: !day.expanded } : day
-      ));
-    } else {
-      setWeeks(prev => prev.map(week =>
-        week.id === weekId ? { ...week, expanded: !week.expanded } : week
-      ));
-    }
+    setWeeks(prev => prev.map(week =>
+      week.id === weekId ? { ...week, expanded: !week.expanded } : week
+    ));
   };
 
   const addEvent = (weekId) => {
@@ -282,67 +273,49 @@ const WeeklyCalendar = () => {
       day: 'Monday'
     };
 
-    if (selectedView === 'trip') {
-      setTripDays(prev => prev.map(day =>
-        day.id === weekId ? {
-          ...day,
-          events: [...day.events, newEvent],
-          expanded: true
-        } : day
-      ));
-    } else {
-      setWeeks(prev => prev.map(week =>
-        week.id === weekId ? {
-          ...week,
-          events: [...week.events, newEvent],
-          expanded: true
-        } : week
-      ));
-    }
+    setWeeks(prev => prev.map(week =>
+      week.id === weekId ? {
+        ...week,
+        events: [...week.events, newEvent],
+        expanded: true
+      } : week
+    ));
     setEditingEvent(newEvent.id);
   };
 
   const updateEvent = (weekId, eventId, newText) => {
-    if (selectedView === 'trip') {
-      setTripDays(prev => prev.map(day =>
-        day.id === weekId ? {
-          ...day,
-          events: day.events.map(event =>
-            event.id === eventId ? { ...event, text: newText } : event
-          )
-        } : day
-      ));
-    } else {
-      setWeeks(prev => prev.map(week =>
-        week.id === weekId ? {
-          ...week,
-          events: week.events.map(event =>
-            event.id === eventId ? { ...event, text: newText } : event
-          )
-        } : week
-      ));
-    }
+    setWeeks(prev => prev.map(week =>
+      week.id === weekId ? {
+        ...week,
+        events: week.events.map(event =>
+          event.id === eventId ? { ...event, text: newText } : event
+        )
+      } : week
+    ));
   };
 
   const deleteEvent = (weekId, eventId) => {
-    if (selectedView === 'trip') {
-      setTripDays(prev => prev.map(day =>
-        day.id === weekId ? {
-          ...day,
-          events: day.events.filter(event => event.id !== eventId)
-        } : day
-      ));
-    } else {
-      setWeeks(prev => prev.map(week =>
-        week.id === weekId ? {
-          ...week,
-          events: week.events.filter(event => event.id !== eventId)
-        } : week
-      ));
-    }
+    setWeeks(prev => prev.map(week =>
+      week.id === weekId ? {
+        ...week,
+        events: week.events.filter(event => event.id !== eventId)
+      } : week
+    ));
   };
 
   // Simplified - no complex member management for family use
+
+  // Auth loading screen
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Calendar className="mx-auto text-blue-600 mb-4 animate-pulse" size={48} />
+          <p className="text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Login screen
   if (!authenticated) {
@@ -405,10 +378,10 @@ const WeeklyCalendar = () => {
               <Calendar className="text-blue-600" size={24} />
               <div>
                 <h1 className="text-2xl font-bold text-gray-800">
-                  {selectedView === 'trip' ? 'Turks & Caicos Trip Planner' : `${selectedYear} Weekly Planner`}
+                  {selectedYear} Weekly Planner
                 </h1>
                 <p className="text-gray-600">
-                  {selectedView === 'trip' ? 'Oct 24 - Nov 6, 2025 • 14 days of paradise' : '52 weeks to plan and theme your year'}
+                  52 weeks to plan and theme your year
                 </p>
               </div>
             </div>
@@ -416,12 +389,9 @@ const WeeklyCalendar = () => {
             <div className="flex items-center gap-3">
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
-                  onClick={() => {
-                    setSelectedYear(2025);
-                    setSelectedView('2025');
-                  }}
+                  onClick={() => setSelectedYear(2025)}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    selectedView === '2025'
+                    selectedYear === 2025
                       ? 'bg-white text-blue-600 shadow-sm'
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
@@ -429,27 +399,14 @@ const WeeklyCalendar = () => {
                   2025
                 </button>
                 <button
-                  onClick={() => {
-                    setSelectedYear(2026);
-                    setSelectedView('2026');
-                  }}
+                  onClick={() => setSelectedYear(2026)}
                   className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    selectedView === '2026'
+                    selectedYear === 2026
                       ? 'bg-white text-blue-600 shadow-sm'
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
                   2026
-                </button>
-                <button
-                  onClick={() => setSelectedView('trip')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
-                    selectedView === 'trip'
-                      ? 'bg-white text-blue-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-800'
-                  }`}
-                >
-                  Turks & Caicos 2025
                 </button>
               </div>
 
@@ -465,34 +422,34 @@ const WeeklyCalendar = () => {
         </div>
         
         <div className="divide-y divide-gray-100">
-          {(selectedView === 'trip' ? tripDays : weeks).map((item) => {
+          {weeks.map((week) => {
             const currentWeekNumber = getCurrentWeekNumber();
-            const isCurrentWeek = selectedView !== 'trip' && currentWeekNumber === item.id;
+            const isCurrentWeek = currentWeekNumber === week.id;
 
             return (
-            <div key={item.id} className={`hover:bg-gray-50 transition-colors group ${isCurrentWeek ? 'bg-blue-50 border-l-4 border-blue-400' : ''}`}>
+            <div key={week.id} className={`hover:bg-gray-50 transition-colors group ${isCurrentWeek ? 'bg-blue-50 border-l-4 border-blue-400' : ''}`}>
               <div className="flex items-center justify-between p-4">
                 <div className="flex items-center gap-3 flex-1">
                   <button
-                    onClick={() => toggleWeekExpanded(item.id)}
+                    onClick={() => toggleWeekExpanded(week.id)}
                     className="p-1 hover:bg-gray-100 rounded text-gray-500"
                   >
-                    {item.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    {week.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   </button>
 
                   <div className="w-12 text-sm text-gray-400 font-medium">
-                    {selectedView === 'trip' ? `D${item.id}` : `W${item.id}`}
+                    W{week.id}
                   </div>
-                  
+
                   <div className="flex-1">
-                    {editingWeek === item.id ? (
+                    {editingWeek === week.id ? (
                       <div className="flex gap-2 w-full">
                         <input
                           type="text"
                           value={tempTheme1}
                           onChange={(e) => setTempTheme1(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') finishEditingTheme(item.id);
+                            if (e.key === 'Enter') finishEditingTheme(week.id);
                             if (e.key === 'Escape') cancelEditingTheme();
                           }}
                           placeholder="First theme..."
@@ -504,78 +461,78 @@ const WeeklyCalendar = () => {
                           value={tempTheme2}
                           onChange={(e) => setTempTheme2(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') finishEditingTheme(item.id);
+                            if (e.key === 'Enter') finishEditingTheme(week.id);
                             if (e.key === 'Escape') cancelEditingTheme();
                           }}
                           placeholder="Second theme..."
                           className="flex-1 px-2 py-1 border rounded font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 touch-manipulation"
                         />
                         <button
-                          onClick={() => finishEditingTheme(item.id)}
+                          onClick={() => finishEditingTheme(week.id)}
                           className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 touch-manipulation"
                         >
                           ✓
                         </button>
                       </div>
-                    ) : (item.theme1 || item.theme2) ? (
+                    ) : (week.theme1 || week.theme2) ? (
                       <div
                         className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded transition-colors touch-manipulation"
-                        onClick={() => startEditingTheme(item)}
+                        onClick={() => startEditingTheme(week)}
                       >
-                        {item.theme1 && (
+                        {week.theme1 && (
                           <span className="font-medium text-gray-800 hover:text-blue-600">
-                            {item.theme1}
+                            {week.theme1}
                           </span>
                         )}
-                        {item.theme1 && item.theme2 && (
+                        {week.theme1 && week.theme2 && (
                           <span className="text-gray-400 mx-2">•</span>
                         )}
-                        {item.theme2 && (
+                        {week.theme2 && (
                           <span className="font-medium text-gray-800 hover:text-blue-600">
-                            {item.theme2}
+                            {week.theme2}
                           </span>
                         )}
                       </div>
                     ) : (
                       <div
-                        onClick={() => startEditingTheme(item)}
+                        onClick={() => startEditingTheme(week)}
                         className="w-full px-2 py-1 border rounded font-medium text-gray-400 cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-colors touch-manipulation"
                       >
-                        {selectedView === 'trip' ? 'Enter day theme...' : 'Enter week theme...'}
+                        Enter week theme...
                       </div>
                     )}
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-4">
                   <div className="text-sm text-gray-500">
-                    {selectedView === 'trip' ? item.date : item.dateRange}
+                    {week.dateRange}
                   </div>
 
-                  {item.events.length > 0 && (
+                  {week.events.length > 0 && (
                     <div className="flex gap-1">
-                      {item.events.slice(0, 3).map((event, idx) => (
+                      {week.events.slice(0, 3).map((event, idx) => (
                         <div key={idx} className="w-2 h-2 bg-blue-400 rounded-full"></div>
                       ))}
-                      {item.events.length > 3 && (
-                        <span className="text-xs text-gray-400">+{item.events.length - 3}</span>
+                      {week.events.length > 3 && (
+                        <span className="text-xs text-gray-400">+{week.events.length - 3}</span>
                       )}
                     </div>
                   )}
                 </div>
               </div>
 
-              {item.expanded && (
+              {week.expanded && (
                 <div className="px-4 pb-4 ml-8 border-l-2 border-blue-100">
                   <div className="space-y-2">
-                    {item.events.map((event) => (
+                    {week.events.map((event) => (
                       <div key={event.id} className="flex items-center gap-2 group">
                         <div className="w-2 h-2 bg-blue-400 rounded-full flex-shrink-0"></div>
                         {editingEvent === event.id ? (
                           <input
                             type="text"
                             value={event.text}
-                            onChange={(e) => updateEvent(item.id, event.id, e.target.value)}
+                            onChange={(e) => updateEvent(week.id, event.id, e.target.value)}
                             onBlur={() => setEditingEvent(null)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') setEditingEvent(null);
@@ -593,7 +550,7 @@ const WeeklyCalendar = () => {
                           </span>
                         )}
                         <button
-                          onClick={() => deleteEvent(item.id, event.id)}
+                          onClick={() => deleteEvent(week.id, event.id)}
                           className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 text-xs px-1"
                         >
                           ×
@@ -602,7 +559,7 @@ const WeeklyCalendar = () => {
                     ))}
 
                     <button
-                      onClick={() => addEvent(item.id)}
+                      onClick={() => addEvent(week.id)}
                       className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                     >
                       + Add event

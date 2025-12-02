@@ -2,12 +2,22 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
+import Migrate from './Migrate';
 import reportWebVitals from './reportWebVitals';
+
+// Simple routing based on URL path
+const getComponent = () => {
+  const path = window.location.pathname;
+  if (path === '/migrate') {
+    return <Migrate />;
+  }
+  return <App />;
+};
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    {getComponent()}
   </React.StrictMode>
 );
 
